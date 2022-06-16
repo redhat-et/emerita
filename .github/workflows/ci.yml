@@ -1,0 +1,61 @@
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    name: Emerita CI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Rust (Stable)
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install Rust (Nightly)
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: rust-src, rustfmt, clippy
+
+      - name: Install bpf-linker
+        run: cargo install bpf-linker
+
+      - uses: Swatinem/rust-cache@v1
+
+      - name: Build eBPF Programs
+        run: |
+          cargo xtask build-ebpf
+
+      - name: Check Formatting
+        run: |
+          cargo +nightly fmt --all -- --check
+          pushd emerita-ebpf
+          cargo +nightly fmt --all -- --check
+          popd
+
+      - name: Run Clippy
+        run: |
+          cargo +nightly clippy --all -- --deny warnings
+          pushd emerita-ebpf
+          cargo +nightly clippy --all -- --deny warnings
+          popd
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run Tests
+        run: RUST_BACKTRACE=full cargo test --verbose
