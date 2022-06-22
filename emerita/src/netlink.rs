@@ -37,7 +37,7 @@ impl NetlinkManager {
         }
     }
 
-    pub(crate) fn new_in_namespace(ns: String) -> Result<Self, anyhow::Error> {
+    pub(crate) fn new_in_namespace(ns: &str) -> Result<Self, anyhow::Error> {
         Ok(NetlinkManager {
             sock: RefCell::new(init_namespace_sock(ns)?),
         })
@@ -89,7 +89,7 @@ impl NetlinkManager {
 
         self.send_message(msg)?;
 
-        let (ifindex, mac) = self.get_link_info("emerita0".to_string())?;
+        let (ifindex, mac) = self.get_link_info("emerita0")?;
         Ok(Some(Interface {
             ifindex,
             name: "emerita0".to_string(),
@@ -99,22 +99,22 @@ impl NetlinkManager {
 
     pub(crate) fn create_veth_pair(
         &self,
-        peer_name: String,
-        netns: String,
+        peer_name: &str,
+        netns: &str,
         mtu: u32,
     ) -> Result<(Interface, Interface), anyhow::Error> {
-        let f = File::open(&netns)?; // Peer is the host-side of the veth pair
+        let f = File::open(netns)?; // Peer is the host-side of the veth pair
         let mut peer = LinkMessage::default();
         let name = veth_name();
         peer.nlas.push(Nla::Mtu(mtu));
-        peer.nlas.push(Nla::IfName(name.clone()));
+        peer.nlas.push(Nla::IfName(name.to_string()));
         let link_info_data = InfoData::Veth(VethInfo::Peer(peer));
         let link_info_nlas = vec![Info::Kind(InfoKind::Veth), Info::Data(link_info_data)];
 
         // Veth is the container-side of the veth pair
         let mut veth = LinkMessage::default();
         veth.nlas.push(Nla::Mtu(mtu));
-        veth.nlas.push(Nla::IfName(peer_name.clone()));
+        veth.nlas.push(Nla::IfName(peer_name.to_string()));
         veth.nlas.push(Nla::NetNsFd(f.as_raw_fd()));
         veth.nlas.push(Nla::Info(link_info_nlas));
 
@@ -127,7 +127,7 @@ impl NetlinkManager {
         };
 
         self.send_message(msg)?;
-        let (ifindex, mac) = self.get_link_info(name.clone())?;
+        let (ifindex, mac) = self.get_link_info(&name)?;
         Ok((
             Interface {
                 ifindex,
@@ -135,7 +135,7 @@ impl NetlinkManager {
                 mac: Some(mac),
             },
             Interface {
-                name: peer_name,
+                name: peer_name.to_string(),
                 ..Default::default()
             },
         ))
@@ -180,9 +180,9 @@ impl NetlinkManager {
         self.send_message(msg)
     }
 
-    pub(crate) fn get_link_info(&self, name: String) -> Result<(u32, String), anyhow::Error> {
+    pub(crate) fn get_link_info(&self, name: &str) -> Result<(u32, String), anyhow::Error> {
         let mut iface = LinkMessage::default();
-        iface.nlas.push(Nla::IfName(name));
+        iface.nlas.push(Nla::IfName(name.to_string()));
         iface.nlas.push(Nla::ExtMask(RTEXT_FILTER_VF));
 
         let mut msg = NetlinkMessage {
@@ -326,7 +326,7 @@ fn init_sock() -> Socket {
     socket
 }
 
-fn init_namespace_sock(namespace: String) -> Result<Socket, anyhow::Error> {
+fn init_namespace_sock(namespace: &str) -> Result<Socket, anyhow::Error> {
     let current_netns = current_netns()?;
     change_netns_fd(namespace)?;
     let mut socket = Socket::new(NETLINK_ROUTE).unwrap();
@@ -347,7 +347,7 @@ pub fn current_netns() -> Result<i32, anyhow::Error> {
     .map_err(|e| anyhow!(e))
 }
 
-fn change_netns_fd(path: String) -> Result<(), anyhow::Error> {
+fn change_netns_fd(path: &str) -> Result<(), anyhow::Error> {
     let f = File::open(path)?;
     setns(f.as_raw_fd(), CloneFlags::CLONE_NEWNET).map_err(|e| anyhow!(e))
 }

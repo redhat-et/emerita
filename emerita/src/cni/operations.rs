@@ -107,8 +107,15 @@ pub fn cni(config: &NetworkConfig) -> Result<Value, Error> {
                     None,
                 ));
             }
-            add(container_id, netns.unwrap(), ifname, args, path, config)
-                .map(|s| serde_json::to_value(&s).unwrap())
+            add(
+                &container_id,
+                &netns.unwrap(),
+                &ifname,
+                &args,
+                &path,
+                config,
+            )
+            .map(|s| serde_json::to_value(&s).unwrap())
         }
         CniCommand::Del => {
             debug!("CNI DEL");
@@ -119,7 +126,14 @@ pub fn cni(config: &NetworkConfig) -> Result<Value, Error> {
                     None,
                 ));
             }
-            del(container_id, netns.unwrap(), ifname, args, path, config);
+            del(
+                &container_id,
+                &netns.unwrap(),
+                &ifname,
+                &args,
+                &path,
+                config,
+            );
             Ok(Value::default())
         }
         CniCommand::Check => {
@@ -130,7 +144,7 @@ pub fn cni(config: &NetworkConfig) -> Result<Value, Error> {
                     None,
                 ));
             }
-            check(container_id, netns.unwrap(), ifname, args, path)
+            check(&container_id, &netns.unwrap(), &ifname, &args, &path)
                 .map(|s| serde_json::to_value(&s).unwrap())
         }
         CniCommand::Version => version(),
@@ -138,15 +152,15 @@ pub fn cni(config: &NetworkConfig) -> Result<Value, Error> {
 }
 
 fn add(
-    _container_id: String,
-    netns: String,
-    ifname: String,
-    _args: Option<String>,
-    path: String,
+    _container_id: &str,
+    netns: &str,
+    ifname: &str,
+    _args: &Option<String>,
+    path: &str,
     config: &NetworkConfig,
 ) -> Result<Success, Error> {
     debug!("Calling IPAM Plugin");
-    let mut result = match call_ipam(config, path.clone(), true) {
+    let mut result = match call_ipam(config, path, true) {
         Ok(r) => Ok(r),
         Err(e) => {
             env::set_var("CNI_COMMAND", "DEL");
@@ -156,7 +170,7 @@ fn add(
     }?;
     debug!("Creating Netlink Sockets");
     let hostns = NetlinkManager::new();
-    let containerns = NetlinkManager::new_in_namespace(netns.clone()).map_err(|e| {
+    let containerns = NetlinkManager::new_in_namespace(netns).map_err(|e| {
         Error::new_custom(
             102,
             "Error creating netlink socket in container ns".to_string(),
@@ -196,15 +210,13 @@ fn add(
         )
     })?;
     debug!("Creating Container Interface");
-    let (host, veth) = hostns
-        .create_veth_pair(ifname, netns.clone(), 1500)
-        .map_err(|e| {
-            Error::new_custom(
-                102,
-                "Error creating container interfaces".to_string(),
-                Some(e.to_string()),
-            )
-        })?;
+    let (host, veth) = hostns.create_veth_pair(ifname, netns, 1500).map_err(|e| {
+        Error::new_custom(
+            102,
+            "Error creating container interfaces".to_string(),
+            Some(e.to_string()),
+        )
+    })?;
 
     debug!("attempting to set veth up via host side");
     hostns.set_up(host.ifindex).map_err(|e| {
@@ -216,7 +228,7 @@ fn add(
     })?;
 
     debug!("getting veth link info");
-    let (veth_ifindex, veth_mac) = containerns.get_link_info(veth.name.clone()).map_err(|e| {
+    let (veth_ifindex, veth_mac) = containerns.get_link_info(&veth.name).map_err(|e| {
         Error::new_custom(
             102,
             "Error getting veth info".to_string(),
@@ -225,7 +237,7 @@ fn add(
     })?;
 
     debug!("setting veth ip address");
-    let veth_addr: Ipv4Addr = ip4_addr_from_cidr(result.ips[0].address.clone());
+    let veth_addr: Ipv4Addr = ip4_addr_from_cidr(&result.ips[0].address);
     containerns.set_ip(veth_ifindex, veth_addr).map_err(|e| {
         Error::new_custom(
             102,
@@ -294,7 +306,7 @@ fn add(
         ifaces.push(Interface {
             name: veth.name,
             mac: Some(veth_mac),
-            sandbox: Some(netns),
+            sandbox: Some(netns.to_string()),
         });
     } else {
         result.interfaces = Some(vec![
@@ -306,7 +318,7 @@ fn add(
             Interface {
                 name: veth.name,
                 mac: Some(veth_mac),
-                sandbox: Some(netns),
+                sandbox: Some(netns.to_string()),
             },
         ])
     }
@@ -314,11 +326,11 @@ fn add(
 }
 
 fn del(
-    _container_id: String,
-    netns: String,
-    ifname: String,
-    _args: Option<String>,
-    path: String,
+    _container_id: &str,
+    netns: &str,
+    ifname: &str,
+    _args: &Option<String>,
+    path: &str,
     config: &NetworkConfig,
 ) {
     debug!("Creating Netlink Sockets");
@@ -341,11 +353,11 @@ fn del(
 }
 
 fn check(
-    _container_id: String,
-    _netns: String,
-    _ifname: String,
-    _args: Option<String>,
-    _path: String,
+    _container_id: &str,
+    _netns: &str,
+    _ifname: &str,
+    _args: &Option<String>,
+    _path: &str,
 ) -> Result<Success, Error> {
     Ok(Success::default())
 }
@@ -359,11 +371,7 @@ fn version() -> Result<Value, Error> {
     ))
 }
 
-fn call_ipam(
-    config: &NetworkConfig,
-    cni_path: String,
-    parse_result: bool,
-) -> Result<Success, Error> {
+fn call_ipam(config: &NetworkConfig, cni_path: &str, parse_result: bool) -> Result<Success, Error> {
     if let Some(ipam) = &config.plugin.ipam {
         // Process will inherit the same ENV variables as we received.
         // No need to filter or clear them
@@ -426,7 +434,7 @@ fn call_ipam(
     }
 }
 
-fn ip4_addr_from_cidr(cidr: String) -> Ipv4Addr {
+fn ip4_addr_from_cidr(cidr: &str) -> Ipv4Addr {
     if let Some(pos) = cidr.rfind('/') {
         cidr[0..pos].parse().unwrap()
     } else {
@@ -440,7 +448,7 @@ mod test {
 
     #[test]
     fn test_ip4_addr_from_cidr() {
-        let a1 = ip4_addr_from_cidr("10.10.1.1/24".to_string());
+        let a1 = ip4_addr_from_cidr("10.10.1.1/24");
         assert_eq!(a1, Ipv4Addr::new(10, 10, 1, 1));
     }
 }
