@@ -1,3 +1,5 @@
+> **Warning**: Experimental. There is no intention to ever make this viable for production. Do not use in production, this code may change and/or break at any time.
+
 # ![Emerita](./assets/logo.png)
 
 [Emerita](https://en.wikipedia.org/wiki/Emerita_(crustacean)) is a lightweight CNI plugin written in Rust.
